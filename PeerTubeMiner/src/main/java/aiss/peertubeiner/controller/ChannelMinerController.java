@@ -20,7 +20,7 @@ public class ChannelMinerController {
     @Autowired
     private PeerTubeService peerTubeService;
 
-    // GET endpoint for testing (read-only) - returns PeerTube data without storing
+    // GET endpoint para pruebas (solo lectura)
     @GetMapping("/{id}")
     public ResponseEntity<?> getChannelDataReadOnly(
             @PathVariable String id,
@@ -29,8 +29,9 @@ public class ChannelMinerController {
         
         try {
             PeerTubeVideoResponse response = peerTubeService.getVideosByChannel(id, maxVideos);
-            if (response == null) {
-                return new ResponseEntity<>("Failed to fetch data from PeerTube", HttpStatus.BAD_REQUEST);
+            // Si el servicio devuelve null o una lista vacía, mandamos el 404 que pide el PDF
+            if (response == null || response.getVideos() == null || response.getVideos().isEmpty()) {
+                return new ResponseEntity<>("Channel not found on PeerTube", HttpStatus.NOT_FOUND);
             }
             return new ResponseEntity<>(response, HttpStatus.OK);
         } catch (Exception e) {
@@ -38,7 +39,7 @@ public class ChannelMinerController {
         }
     }
 
-    // POST endpoint - fetches from PeerTube and stores in VideoMiner
+    // POST endpoint - Extrae de PeerTube y guarda en VideoMiner
     @PostMapping("/{id}")
     public ResponseEntity<?> storeChannelData(
             @PathVariable String id,
@@ -49,8 +50,12 @@ public class ChannelMinerController {
             Map<String, Object> result = integrationService.fetchAndStoreChannelData(id, maxVideos, maxComments);
             
             String status = (String) result.get("status");
+            
             if ("success".equals(status)) {
                 return new ResponseEntity<>(result, HttpStatus.CREATED);
+            } else if ("not_found".equals(status)) {
+                // IMPORTANTE: Aquí es donde capturamos el error de "no existe" y devolvemos 404
+                return new ResponseEntity<>(result, HttpStatus.NOT_FOUND);
             } else {
                 return new ResponseEntity<>(result, HttpStatus.BAD_REQUEST);
             }

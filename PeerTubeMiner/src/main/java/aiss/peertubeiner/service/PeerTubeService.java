@@ -4,13 +4,11 @@ import aiss.peertubeiner.model.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.HashMap;
-import java.util.Map;
-
 @Service
 public class PeerTubeService {
 
     private final RestTemplate restTemplate = new RestTemplate();
+    // Usamos framatube que es una de las instancias más grandes de PeerTube
     private static final String PEERTUBE_API_BASE = "https://framatube.org/api/v1";
 
     public PeerTubeVideoResponse getVideosByChannel(String channelHandle, int maxVideos) {
@@ -33,6 +31,18 @@ public class PeerTubeService {
             return restTemplate.getForObject(url, PeerTubeCommentThreadResponse.class);
         } catch (Exception e) {
             System.err.println("Error fetching comments from PeerTube: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // NUEVO MÉTODO: Para extraer los subtítulos haciendo una llamada extra a la API
+    public PeerTubeVideo.CaptionResponse getCaptionsByVideo(String videoUuid) {
+        String url = PEERTUBE_API_BASE + "/videos/" + videoUuid + "/captions";
+        
+        try {
+            return restTemplate.getForObject(url, PeerTubeVideo.CaptionResponse.class);
+        } catch (Exception e) {
+            System.err.println("Error fetching captions from PeerTube: " + e.getMessage());
             return null;
         }
     }

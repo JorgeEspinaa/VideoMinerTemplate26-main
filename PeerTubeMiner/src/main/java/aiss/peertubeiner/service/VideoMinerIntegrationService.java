@@ -24,24 +24,24 @@ public class VideoMinerIntegrationService {
         try {
             // 1. Fetch videos from PeerTube
             PeerTubeVideoResponse videoResponse = peerTubeService.getVideosByChannel(channelHandle, maxVideos);
-            if (videoResponse == null || videoResponse.getVideos() == null) {
-                result.put("status", "error");
-                result.put("message", "Failed to fetch videos from PeerTube");
+            
+            // CAMBIO CLAVE: Gestionar el 404 para el controlador
+            if (videoResponse == null || videoResponse.getVideos() == null || videoResponse.getVideos().isEmpty()) {
+                result.put("status", "not_found");
+                result.put("message", "Channel not found or has no videos on PeerTube");
                 return result;
             }
 
-            // 2. Create channel in VideoMiner
+            // 2. Create the FULL channel object
             String channelId = channelHandle;
             Map<String, Object> channel = new HashMap<>();
             channel.put("id", channelId);
             channel.put("name", channelHandle);
             channel.put("description", "Channel from PeerTube: " + channelHandle);
             channel.put("createdTime", new Date().toString());
-            channel.put("videos", new ArrayList<>());
-
-            restTemplate.postForObject(VIDEOMINER_API_BASE + "/channels", channel, Map.class);
-
-            // 3. For each video, fetch comments and create in VideoMiner
+            
+            // 3. Prepare the list of videos to embed inside the channel
+            List<Map<String, Object>> videosList = new ArrayList<>();
             List<String> storedVideos = new ArrayList<>();
             
             for (PeerTubeVideo video : videoResponse.getVideos()) {
@@ -78,12 +78,23 @@ public class VideoMinerIntegrationService {
                 videoData.put("comments", comments);
 
                 // Add captions
+               // Fetch and add captions
                 List<Map<String, Object>> captions = new ArrayList<>();
-                if (video.getCaptions() != null && video.getCaptions().getData() != null) {
-                    for (PeerTubeVideo.Caption caption : video.getCaptions().getData()) {
+                // CAMBIO: Ahora llamamos a la API para sacar los subtítulos en vez de intentar leerlos del video
+                PeerTubeVideo.CaptionResponse captionResponse = peerTubeService.getCaptionsByVideo(video.getUuid());
+                
+                if (captionResponse != null && captionResponse.getData() != null) {
+                    for (PeerTubeVideo.Caption caption : captionResponse.getData()) {
                         Map<String, Object> captionData = new HashMap<>();
-                        captionData.put("id", UUID.randomUUID().toString());
-                        captionData.put("link", caption.getFileUrl());
+                        captionData.put("id", UUID.randomUUID().toString()); // Generamos un ID inventado como nos pedía el modelo
+                        
+                        // En PeerTube a veces la URL viene relativa, así que le añadimos el dominio por si acaso
+                        String fileUrl = caption.getFileUrl();
+                        if (fileUrl != null && fileUrl.startsWith("/")) {
+                            fileUrl = "https://framatube.org" + fileUrl;
+                        }
+                        captionData.put("link", fileUrl);
+                        
                         if (caption.getLanguage() != null) {
                             captionData.put("language", caption.getLanguage().getId());
                         }
@@ -92,10 +103,16 @@ public class VideoMinerIntegrationService {
                 }
                 videoData.put("captions", captions);
 
-                // Store video in VideoMiner
-                restTemplate.postForObject(VIDEOMINER_API_BASE + "/videos", videoData, Map.class);
+                // CAMBIO CLAVE: En lugar de hacer un POST por cada video, lo añadimos a la lista del canal
+                videosList.add(videoData);
                 storedVideos.add(video.getUuid());
             }
+
+            // Añadir la lista de videos completos al canal
+            channel.put("videos", videosList);
+
+            // 4. Send the FULL channel object to VideoMiner in ONE request
+            restTemplate.postForObject(VIDEOMINER_API_BASE + "/channels", channel, Map.class);
 
             result.put("status", "success");
             result.put("message", "Data imported successfully from PeerTube");
